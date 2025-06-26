@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Sinistros Interativo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+
+<body class="bg-gray-100 text-gray-800 font-sans">
+    <header class="bg-white shadow p-4 text-center">
+        <h1 class="text-3xl font-bold text-blue-800">Relatório Interativo de Sinistros</h1>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 sm:p-6">
+        <div class="bg-white shadow rounded p-4 mb-6">
+            <h2 class="text-xl font-semibold text-blue-800 mb-4">Filtros e Ações</h2>
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                <div class="flex gap-3 flex-wrap items-center">
+                    <input type="text" id="filtroEmpresa" placeholder="Filtrar por empresa"
+                        class="border border-gray-300 rounded px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled>
+
+                    <input type="date" id="filtroData"
+                        class="border border-gray-300 rounded px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled>
+
+                    <select id="filtroTipo"
+                        class="border border-gray-300 rounded px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled>
+                        <option value="">Todos os Tipos</option>
+                        <option value="comPrejuizo">Com Prejuízo</option>
+                        <option value="evitado">Evitado</option>
+                        <option value="outro">Outro</option>
+                    </select>
+
+                    <button id="btnFiltrar" onclick="filtrarSinistros()"
+                        class="bg-blue-700 text-white px-5 py-2 rounded shadow hover:bg-blue-800 transition-colors"
+                        disabled>
+                        Filtrar
+                    </button>
+                </div>
+                <button onclick="exportarPDF()"
+                    class="bg-green-600 text-white px-5 py-2 rounded shadow hover:bg-green-700 transition-colors">
+                    Exportar para PDF
+                </button>
+            </div>
+        </div>
+
+        <div id="loadingMessage" class="text-center py-10">
+            <p class="text-lg text-gray-600">Carregando dados...</p>
+        </div>
+
+        <div id="conteudoParaExportar" class="hidden">
+            <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div class="bg-white p-5 rounded-lg shadow text-center">
+                    <p class="text-sm text-gray-500">Total de Sinistros</p>
+                    <p id="kpiTotal" class="text-3xl font-bold text-blue-700">0</p>
+                </div>
+                <div class="bg-white p-5 rounded-lg shadow text-center">
+                    <p class="text-sm text-gray-500">Com Prejuízo</p>
+                    <p id="kpiPrejuizo" class="text-3xl font-bold text-red-600">0</p>
+                </div>
+                <div class="bg-white p-5 rounded-lg shadow text-center">
+                    <p class="text-sm text-gray-500">Sinistros Evitados</p>
+                    <p id="kpiEvitado" class="text-3xl font-bold text-green-600">0</p>
+                </div>
+            </section>
+
+            <section class="bg-white shadow rounded p-6 mb-6">
+                <h2 class="text-xl font-semibold text-blue-800 mb-4">Análise Gráfica</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <h3 class="font-medium text-center mb-2">Sinistros por Mês</h3>
+                        <canvas id="graficoTemporal"></canvas>
+                    </div>
+                    <div>
+                        <h3 class="font-medium text-center mb-2">Distribuição por Tipo de Sinistro</h3>
+                        <canvas id="graficoTipo" style="max-height: 300px; margin: auto;"></canvas>
+                    </div>
+                    <div>
+                        <h3 class="font-medium text-center mb-2">Sinistros por Empresa</h3>
+                        <canvas id="graficoEmpresa"></canvas>
+                    </div>
+                    <div>
+                        <h3 class="font-medium text-center mb-2">Sinistros por Setor</h3>
+                        <canvas id="graficoSetor"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tabelaPDF" class="bg-white shadow rounded p-4 overflow-auto">
+                <h2 class="text-xl font-semibold text-blue-800 mb-4">Lista de Sinistros</h2>
+                <div id="secoesTabela"></div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const endpoint = 'https://script.google.com/macros/s/AKfycbz9WXdDpL5oKk_iK43zI5jjZIV0_C4w3TAlR21tnaL4xm4k9Az4Wzzf5JVBx9ZYWHBcUA/exec';
+        let sinistros = [];
+        let charts = {};
+
+        async function carregarSinistros() {
+            const loadingDiv = document.getElementById('loadingMessage');
+            try {
+                const res = await fetch(endpoint);
+
+                if (!res.ok) {
+                    throw new Error(`Erro de rede ou HTTP. Status: ${res.status}`);
+                }
+
+                const text = await res.text();
+                try {
+                    sinistros = JSON.parse(text);
+                } catch (e) {
+                    console.error("Erro ao fazer parse do JSON:", e, text);
+                    throw new Error("A resposta não é um JSON válido.");
+                }
+
+                loadingDiv.style.display = 'none';
+                document.getElementById('conteudoParaExportar').classList.remove('hidden');
+
+                document.getElementById('filtroEmpresa').disabled = false;
+                document.getElementById('filtroData').disabled = false;
+                document.getElementById('filtroTipo').disabled = false;
+                document.getElementById('btnFiltrar').disabled = false;
+
+                filtrarSinistros();
+
+            } catch (error) {
+                console.error("Erro detalhado ao carregar os dados:", error);
+                let userMessage = `<strong>Falha ao carregar os dados.</strong><br>Causa provável: Problema de permissão ou erro no script do Google.`;
+                if (error instanceof TypeError) {
+                    userMessage = `<strong>Falha de Formato:</strong><br>O endpoint não está enviando os dados no formato correto (JSON).`;
+                }
+                loadingDiv.innerHTML = `<div class="p-4 bg-red-100 text-red-700 rounded-lg">${userMessage}<br><br>Por favor, verifique as instruções de configuração do Google Apps Script.</div>`;
+            }
+        }
+
+        // ==================================================================
+        // INÍCIO DA CORREÇÃO
+        // ==================================================================
+        function getClassificacaoSinistro(item) {
+            const titulo = (item["Título do SINISTRO:"] || '').toString().toLowerCase();
+            
+            // CORREÇÃO: Adicionado .toString() para evitar erro com valores não-texto
+            const prejuizo = (item["Prejuízo Registrado:"] || '').toString().toLowerCase();
+
+            if (titulo.includes("evitado")) {
+                return 'evitado';
+            }
+            if (prejuizo && !prejuizo.includes("não")) {
+                return 'comPrejuizo';
+            }
+            return 'outro';
+        }
+        // ==================================================================
+        // FIM DA CORREÇÃO
+        // ==================================================================
+
+        function renderTabela(dados) {
+            const container = document.getElementById('secoesTabela');
+            container.innerHTML = '';
+            if (dados.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-4">Nenhum sinistro encontrado para os filtros aplicados.</p>';
+                return;
+            }
+
+            const porPagina = 5;
+            const totalPaginas = Math.ceil(dados.length / porPagina);
+
+            for (let i = 0; i < totalPaginas; i++) {
+                const inicio = i * porPagina;
+                const fim = inicio + porPagina;
+                const secao = document.createElement('section');
+                secao.className = 'mb-10 page-break-inside-avoid';
+                if (totalPaginas > 1) {
+                    secao.innerHTML = `<h3 class="text-lg font-semibold mb-2">Página ${i + 1} de ${totalPaginas}</h3>`;
+                }
+
+                const tabela = document.createElement('table');
+                tabela.className = 'min-w-full text-sm border border-gray-200';
+                tabela.innerHTML = `
+                  <thead class="bg-blue-100 text-blue-900">
+                    <tr>
+                      <th class="px-3 py-2 text-left">Data</th>
+                      <th class="px-3 py-2 text-left">Empresa</th>
+                      <th class="px-3 py-2 text-left">Setor/CDD</th>
+                      <th class="px-3 py-2 text-left">Placa</th>
+                      <th class="px-3 py-2 text-left">Motorista</th>
+                      <th class="px-3 py-2 text-left">Título</th>
+                      <th class="px-3 py-2 text-left">Histórico</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200 bg-white">
+                    ${dados.slice(inicio, fim).map((item, idx) => {
+                    const id = `hist-${i}-${idx}`;
+                    return `
+                      <tr>
+                        <td class="px-3 py-2">${formatarData(item["Carimbo de data/hora"] || '')}</td>
+                        <td class="px-3 py-2">${item["Empresa Contratante:"] || '-'}</td>
+                        <td class="px-3 py-2">${item["SETOR/CDD:"] || '-'}</td>
+                        <td class="px-3 py-2">${item["Placa do Caminhão:"] || '-'}</td>
+                        <td class="px-3 py-2">${item["Motorista:"] || '-'}</td>
+                        <td class="px-3 py-2 font-semibold text-blue-700">${item["Título do SINISTRO:"] || '-'}</td>
+                        <td class="px-3 py-2">
+                          <button onclick="document.getElementById('${id}').classList.toggle('hidden')"
+                            class="text-blue-600 hover:underline">Ver histórico</button>
+                          <p id="${id}" class="hidden mt-2 whitespace-pre-line text-xs">${item["Histórico da ocorrência / Sinistro:"] || '-'}</p>
+                        </td>
+                      </tr>`;
+                }).join('')}
+                  </tbody>
+                `;
+                secao.appendChild(tabela);
+                container.appendChild(secao);
+            }
+        }
+
+        function montarGraficos(dados) {
+            const empresas = {};
+            dados.forEach(item => {
+                const empresa = item["Empresa Contratante:"] || 'Desconhecido';
+                empresas[empresa] = (empresas[empresa] || 0) + 1;
+            });
+            criarGrafico('graficoEmpresa', 'bar', {
+                labels: Object.keys(empresas),
+                datasets: [{
+                    label: 'Sinistros por Empresa',
+                    data: Object.values(empresas),
+                    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    borderRadius: 5
+                }]
+            }, { plugins: { legend: { display: false } } });
+
+            const setores = {};
+            dados.forEach(item => {
+                const setor = item["SETOR/CDD:"] || 'Indefinido';
+                setores[setor] = (setores[setor] || 0) + 1;
+            });
+            criarGrafico('graficoSetor', 'bar', {
+                labels: Object.keys(setores),
+                datasets: [{
+                    label: 'Sinistros por Setor',
+                    data: Object.values(setores),
+                    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    borderColor: 'rgba(34, 197, 94, 1)',
+                    borderWidth: 1,
+                    borderRadius: 5
+                }]
+            }, { plugins: { legend: { display: false } } });
+
+            const porMes = {};
+            dados.forEach(item => {
+                const data = item["Carimbo de data/hora"];
+                if (data) {
+                    try {
+                        const dateObj = new Date(data);
+                        if(isNaN(dateObj.getTime())) return;
+                        const mesAno = dateObj.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+                        porMes[mesAno] = (porMes[mesAno] || 0) + 1;
+                    } catch(e) {}
+                }
+            });
+            const labelsMes = Object.keys(porMes).sort((a, b) => {
+                const [mesA, anoA] = a.split(' de ');
+                const [mesB, anoB] = b.split(' de ');
+                return new Date(anoA, getMonthIndex(mesA)) - new Date(anoB, getMonthIndex(mesB));
+            });
+            const dataMes = labelsMes.map(key => porMes[key]);
+            criarGrafico('graficoTemporal', 'line', {
+                labels: labelsMes,
+                datasets: [{
+                    label: 'Volume de Sinistros',
+                    data: dataMes,
+                    fill: false,
+                    borderColor: 'rgb(239, 68, 68)',
+                    tension: 0.1
+                }]
+            }, { plugins: { legend: { display: false } } });
+
+            const tipos = { comPrejuizo: 0, evitado: 0, outro: 0 };
+            dados.forEach(item => {
+                const tipo = getClassificacaoSinistro(item);
+                tipos[tipo]++;
+            });
+            criarGrafico('graficoTipo', 'pie', {
+                labels: ['Com Prejuízo', 'Evitados', 'Outros'],
+                datasets: [{
+                    data: [tipos.comPrejuizo, tipos.evitado, tipos.outro],
+                    backgroundColor: ['rgba(239, 68, 68, 0.8)', 'rgba(34, 197, 94, 0.8)', 'rgba(209, 213, 219, 0.8)'],
+                    hoverOffset: 4
+                }]
+            }, { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } } });
+        }
+
+        function getMonthIndex(monthStr) {
+            const months = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
+            return months.indexOf(monthStr.toLowerCase());
+        }
+
+        function criarGrafico(canvasId, type, data, options = {}) {
+            if (charts[canvasId]) {
+                charts[canvasId].destroy();
+            }
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            charts[canvasId] = new Chart(ctx, {
+                type: type,
+                data: data,
+                options: {
+                    responsive: true,
+                    scales: type === 'bar' || type === 'line' ? { y: { beginAtZero: true } } : {},
+                    ...options
+                }
+            });
+        }
+
+        function atualizarKPIs(dados) {
+            const comPrejuizo = dados.filter(d => getClassificacaoSinistro(d) === 'comPrejuizo').length;
+            const evitado = dados.filter(d => getClassificacaoSinistro(d) === 'evitado').length;
+            document.getElementById('kpiTotal').textContent = dados.length;
+            document.getElementById('kpiPrejuizo').textContent = comPrejuizo;
+            document.getElementById('kpiEvitado').textContent = evitado;
+        }
+
+        function filtrarSinistros() {
+            const empresaFiltro = document.getElementById('filtroEmpresa').value.toLowerCase();
+            const dataFiltro = document.getElementById('filtroData').value;
+            const tipoFiltro = document.getElementById('filtroTipo').value;
+
+            const filtrados = sinistros.filter(item => {
+                const empresa = (item["Empresa Contratante:"] || '').toLowerCase();
+                const dataItem = item["Carimbo de data/hora"] ? item["Carimbo de data/hora"].split('T')[0] : '';
+                const tipo = getClassificacaoSinistro(item);
+
+                const empresaMatch = empresa.includes(empresaFiltro);
+                const dataMatch = dataFiltro ? dataItem === dataFiltro : true;
+                const tipoMatch = tipoFiltro ? tipo === tipoFiltro : true;
+
+                return empresaMatch && dataMatch && tipoMatch;
+            });
+
+            renderTabela(filtrados);
+            montarGraficos(filtrados);
+            atualizarKPIs(filtrados);
+        }
+
+        function exportarPDF() {
+            const element = document.getElementById("conteudoParaExportar");
+            const opt = {
+                margin: [0.5, 0.2, 0.5, 0.2],
+                filename: `relatorio_sinistros_${new Date().toISOString().slice(0, 10)}.pdf`,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+            html2pdf().from(element).set(opt).save();
+        }
+
+        function formatarData(dataISO) {
+            if (!dataISO) return '-';
+            try {
+                return new Date(dataISO).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+            } catch (e) {
+                return '-';
+            }
+        }
+
+        carregarSinistros();
+
+    </script>
+</body>
+
+</html>
