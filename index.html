@@ -8,6 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link rel="shortcut icon" href="/img/logo.png" type="image/x-icon">
 </head>
 
 <body class="bg-gray-100 text-gray-800 font-sans">
@@ -55,7 +56,7 @@
         </div>
 
         <div id="conteudoParaExportar" class="hidden">
-            <section class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <section class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 <div class="bg-white p-5 rounded-lg shadow text-center">
                     <p class="text-sm text-gray-500">Total de Sinistros</p>
                     <p id="kpiTotal" class="text-3xl font-bold text-blue-700">0</p>
@@ -68,11 +69,16 @@
                     <p class="text-sm text-gray-500">Sinistros Evitados</p>
                     <p id="kpiEvitado" class="text-3xl font-bold text-green-600">0</p>
                 </div>
+                <div class="bg-white p-5 rounded-lg shadow text-center">
+                    <p class="text-sm text-gray-500">Carretas Monitoradas</p>
+                    <p id="kpiCarretas" class="text-3xl font-bold text-purple-700">0</p>
+                </div>
             </section>
+
 
             <section class="bg-white shadow rounded p-6 mb-6">
                 <h2 class="text-xl font-semibold text-blue-800 mb-4">Análise Gráfica</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                     <div>
                         <h3 class="font-medium text-center mb-2">Sinistros por Mês</h3>
                         <canvas id="graficoTemporal"></canvas>
@@ -80,6 +86,10 @@
                     <div>
                         <h3 class="font-medium text-center mb-2">Distribuição por Tipo de Sinistro</h3>
                         <canvas id="graficoTipo" style="max-height: 300px; margin: auto;"></canvas>
+                    </div>
+                    <div>
+                        <h3 class="font-medium text-center mb-2">Carretas Monitoradas por Empresa</h3>
+                        <canvas id="graficoCarretasPorEmpresa"></canvas>
                     </div>
                     <div>
                         <h3 class="font-medium text-center mb-2">Sinistros por Empresa</h3>
@@ -90,7 +100,7 @@
                         <canvas id="graficoSetor"></canvas>
                     </div>
                 </div>
-            </section>
+                </section>
 
             <section id="tabelaPDF" class="bg-white shadow rounded p-4 overflow-auto">
                 <h2 class="text-xl font-semibold text-blue-800 mb-4">Lista de Sinistros</h2>
@@ -141,13 +151,8 @@
             }
         }
 
-        // ==================================================================
-        // INÍCIO DA CORREÇÃO
-        // ==================================================================
         function getClassificacaoSinistro(item) {
             const titulo = (item["Título do SINISTRO:"] || '').toString().toLowerCase();
-            
-            // CORREÇÃO: Adicionado .toString() para evitar erro com valores não-texto
             const prejuizo = (item["Prejuízo Registrado:"] || '').toString().toLowerCase();
 
             if (titulo.includes("evitado")) {
@@ -158,9 +163,6 @@
             }
             return 'outro';
         }
-        // ==================================================================
-        // FIM DA CORREÇÃO
-        // ==================================================================
 
         function renderTabela(dados) {
             const container = document.getElementById('secoesTabela');
@@ -221,17 +223,21 @@
             }
         }
 
+        // ==================================================================
+        // INÍCIO DA ALTERAÇÃO JAVASCRIPT
+        // ==================================================================
         function montarGraficos(dados) {
-            const empresas = {};
+            // Gráfico de Sinistros por Empresa
+            const sinistrosPorEmpresa = {};
             dados.forEach(item => {
                 const empresa = item["Empresa Contratante:"] || 'Desconhecido';
-                empresas[empresa] = (empresas[empresa] || 0) + 1;
+                sinistrosPorEmpresa[empresa] = (sinistrosPorEmpresa[empresa] || 0) + 1;
             });
             criarGrafico('graficoEmpresa', 'bar', {
-                labels: Object.keys(empresas),
+                labels: Object.keys(sinistrosPorEmpresa),
                 datasets: [{
                     label: 'Sinistros por Empresa',
-                    data: Object.values(empresas),
+                    data: Object.values(sinistrosPorEmpresa),
                     backgroundColor: 'rgba(59, 130, 246, 0.7)',
                     borderColor: 'rgba(59, 130, 246, 1)',
                     borderWidth: 1,
@@ -239,6 +245,7 @@
                 }]
             }, { plugins: { legend: { display: false } } });
 
+            // Gráfico de Sinistros por Setor
             const setores = {};
             dados.forEach(item => {
                 const setor = item["SETOR/CDD:"] || 'Indefinido';
@@ -255,7 +262,8 @@
                     borderRadius: 5
                 }]
             }, { plugins: { legend: { display: false } } });
-
+            
+            // Gráfico de Sinistros por Mês
             const porMes = {};
             dados.forEach(item => {
                 const data = item["Carimbo de data/hora"];
@@ -285,6 +293,7 @@
                 }]
             }, { plugins: { legend: { display: false } } });
 
+            // Gráfico de Pizza por Tipo de Sinistro
             const tipos = { comPrejuizo: 0, evitado: 0, outro: 0 };
             dados.forEach(item => {
                 const tipo = getClassificacaoSinistro(item);
@@ -298,7 +307,42 @@
                     hoverOffset: 4
                 }]
             }, { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } } });
+            
+            // NOVO GRÁFICO: Carretas Únicas por Empresa
+            const carretasPorEmpresa = {};
+            dados.forEach(item => {
+                const empresa = item["Empresa Contratante:"] || 'Desconhecido';
+                const placa = item["Placa do Caminhão:"];
+                if (placa) {
+                    if (!carretasPorEmpresa[empresa]) {
+                        carretasPorEmpresa[empresa] = new Set();
+                    }
+                    carretasPorEmpresa[empresa].add(placa);
+                }
+            });
+
+            const labelsEmpresasCarretas = Object.keys(carretasPorEmpresa);
+            const dataEmpresasCarretas = labelsEmpresasCarretas.map(empresa => carretasPorEmpresa[empresa].size);
+
+            criarGrafico('graficoCarretasPorEmpresa', 'bar', {
+                labels: labelsEmpresasCarretas,
+                datasets: [{
+                    label: 'Nº de Carretas Únicas',
+                    data: dataEmpresasCarretas,
+                    backgroundColor: 'rgba(147, 51, 234, 0.7)',
+                    borderColor: 'rgba(147, 51, 234, 1)',
+                    borderWidth: 1,
+                    borderRadius: 5
+                }]
+            }, { 
+                indexAxis: 'y', // <-- Torna o gráfico de barras horizontal
+                plugins: { legend: { display: false } } 
+            });
         }
+        // ==================================================================
+        // FIM DA ALTERAÇÃO JAVASCRIPT
+        // ==================================================================
+
 
         function getMonthIndex(monthStr) {
             const months = ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'];
@@ -315,7 +359,7 @@
                 data: data,
                 options: {
                     responsive: true,
-                    scales: type === 'bar' || type === 'line' ? { y: { beginAtZero: true } } : {},
+                    scales: (type === 'bar' || type === 'line') && (options.indexAxis !== 'y') ? { y: { beginAtZero: true } } : {},
                     ...options
                 }
             });
@@ -324,10 +368,15 @@
         function atualizarKPIs(dados) {
             const comPrejuizo = dados.filter(d => getClassificacaoSinistro(d) === 'comPrejuizo').length;
             const evitado = dados.filter(d => getClassificacaoSinistro(d) === 'evitado').length;
+            
+            const placasUnicas = new Set(dados.map(d => d["Placa do Caminhão:"]).filter(p => p));
+
             document.getElementById('kpiTotal').textContent = dados.length;
             document.getElementById('kpiPrejuizo').textContent = comPrejuizo;
             document.getElementById('kpiEvitado').textContent = evitado;
+            document.getElementById('kpiCarretas').textContent = placasUnicas.size;
         }
+
 
         function filtrarSinistros() {
             const empresaFiltro = document.getElementById('filtroEmpresa').value.toLowerCase();
